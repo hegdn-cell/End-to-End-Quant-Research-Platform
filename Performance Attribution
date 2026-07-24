@@ -1,0 +1,196 @@
+# --- SECTION 9: Performance Attribution ---
+
+# This section focuses on analyzing the sources of portfolio returns relative to a benchmark.
+# We will implement a simplified version of the Brinson-Fachler attribution model,
+# which decomposes excess return into allocation and selection effects.
+
+# The Brinson-Fachler model typically requires:
+# 1. Portfolio weights over time
+# 2. Benchmark weights over time
+# 3. Portfolio asset returns over time
+# 4. Benchmark asset returns over time
+
+def brinson_fachler_attribution(portfolio_weights: pd.DataFrame,
+                                benchmark_weights: pd.DataFrame,
+                                portfolio_returns: pd.DataFrame,
+                                benchmark_returns: pd.DataFrame,
+                               ) -> dict:
+    """
+    Performs a simplified Brinson-Fachler performance attribution.
+
+    This function decomposes the excess return into an allocation effect
+    and a selection effect for a single period.
+
+    Args:
+        portfolio_weights (pd.DataFrame): DataFrame of portfolio weights for each asset.
+                                          Index should be dates, columns should be asset tickers.
+                                          Values should sum to 1 for each date.
+        benchmark_weights (pd.DataFrame): DataFrame of benchmark weights for each asset.
+                                          Index should be dates, columns should be asset tickers.
+                                          Values should sum to 1 for each date.
+        portfolio_returns (pd.DataFrame): DataFrame of portfolio asset returns for each asset.
+                                          Index should be dates, columns should be asset tickers.
+        benchmark_returns (pd.DataFrame): DataFrame of benchmark asset returns for each asset.
+                                          Index should be dates, columns should be asset tickers.
+
+    Returns:
+        dict: A dictionary containing the total excess return, allocation effect, and selection effect.
+    """
+    logger.info("Starting Brinson-Fachler performance attribution.")
+
+    # Ensure all inputs have the same index (dates) and columns (assets)
+    common_index = portfolio_weights.index.intersection(benchmark_weights.index)
+    common_index = common_index.intersection(portfolio_returns.index)
+    common_index = common_index.intersection(benchmark_returns.index)
+
+    if common_index.empty:
+        logger.error("No common dates found across all input dataframes for attribution.")
+        return {"total_excess_return": np.nan, "allocation_effect": np.nan, "selection_effect": np.nan}
+
+    common_cols = portfolio_weights.columns.intersection(benchmark_weights.columns)
+    common_cols = common_cols.intersection(portfolio_returns.columns)
+    common_cols = common_cols.intersection(benchmark_returns.columns)
+
+    if common_cols.empty:
+        logger.error("No common assets found across all input dataframes for attribution.")
+        return {"total_excess_return": np.nan, "allocation_effect": np.nan, "selection_effect": np.nan}
+
+    pw = portfolio_weights.loc[common_index, common_cols]
+    bw = benchmark_weights.loc[common_index, common_cols]
+    pr = portfolio_returns.loc[common_index, common_cols]
+    br = benchmark_returns.loc[common_index, common_cols]
+
+    # Calculate total portfolio and benchmark returns for each period
+    total_portfolio_return = (pw * pr).sum(axis=1)
+    total_benchmark_return = (bw * br).sum(axis=1)
+
+    # Calculate overall excess return
+    excess_return = total_portfolio_return - total_benchmark_return
+    total_excess_return = excess_return.sum() # Sum over the periods
+
+    # Allocation Effect: (Portfolio Weight - Benchmark Weight) * (Benchmark Return - Benchmark Total Return)
+    # For multi-period, sum over periods: (pw_i - bw_i) * (br_i - sum(bw_k * br_k))
+    # For simplification, we'll calculate effects per period and sum them up.
+    allocation_effect_components = (pw - bw).mul(br.subtract(total_benchmark_return, axis=0)).sum(axis=1)
+    allocation_effect = allocation_effect_components.sum()
+
+    # Selection Effect: Benchmark Weight * (Portfolio Return - Benchmark Return)
+    selection_effect_components = bw.mul(pr - br).sum(axis=1)
+    selection_effect = selection_effect_components.sum()
+
+    # Interaction Effect (often grouped into selection or ignored in simplified models):
+    # (Portfolio Weight - Benchmark Weight) * (Portfolio Return - Benchmark Return)
+    # interaction_effect = ((pw - bw) * (pr - br)).sum(axis=1).sum()
+
+    logger.info(f"Attribution complete. Total Excess Return: {total_excess_return:.4f}")
+    logger.info(f"Allocation Effect: {allocation_effect:.4f}")
+    logger.info(f"Selection Effect: {selection_effect:.4f}")
+
+    return {
+        "total_excess_return": total_excess_return,
+        "allocation_effect": allocation_effect,
+        "selection_effect": selection_effect
+        # "interaction_effect": interaction_effect # Optionally include
+    }
+
+def calculate_sharpe_ratio(returns: pd.Series, risk_free_rate: float = 0.0) -> float:
+    """
+    Calculates the Sharpe Ratio.
+
+    Args:
+        returns (pd.Series): Series of portfolio returns.
+        risk_free_rate (float): The risk-free rate (per period, e.g., daily).
+
+    Returns:
+        float: The Sharpe Ratio.
+    """
+    if returns.empty or returns.std() == 0:
+        logger.warning("Cannot calculate Sharpe Ratio: empty returns or zero standard deviation.")
+        return np.nan
+
+    excess_returns = returns - risk_free_rate
+    sharpe_ratio = excess_returns.mean() / returns.std()
+    logger.info(f"Sharpe Ratio: {sharpe_ratio:.4f}")
+    return sharpe_ratio
+
+def calculate_sortino_ratio(returns: pd.Series, risk_free_rate: float = 0.0) -> float:
+    """
+    Calculates the Sortino Ratio.
+
+    The Sortino ratio is a variation of the Sharpe ratio that only penalizes downside volatility.
+
+    Args:
+        returns (pd.Series): Series of portfolio returns.
+        risk_free_rate (float): The risk-free rate (per period, e.g., daily).
+
+    Returns:
+        float: The Sortino Ratio.
+    """
+    if returns.empty:
+        logger.warning("Cannot calculate Sortino Ratio: empty returns.")
+        return np.nan
+
+    excess_returns = returns - risk_free_rate
+    downside_returns = excess_returns[excess_returns < 0]
+
+    if downside_returns.empty:
+        logger.warning("No downside returns found for Sortino Ratio calculation. Returning inf.")
+        return np.inf # No downside risk
+
+    downside_std = downside_returns.std()
+
+    if downside_std == 0:
+        logger.warning("Downside standard deviation is zero for Sortino Ratio calculation. Returning inf.")
+        return np.inf
+
+    sortino_ratio = excess_returns.mean() / downside_std
+    logger.info(f"Sortino Ratio: {sortino_ratio:.4f}")
+    return sortino_ratio
+
+
+# Example Usage: (This will be moved to a dedicated execution cell later)
+# if __name__ == '__main__':
+#     # Dummy data for demonstration
+#     np.random.seed(42)
+#     dates = pd.date_range(start='2020-01-01', periods=100, freq='D')
+#     assets = ['AssetA', 'AssetB', 'AssetC']
+#
+#     # Simulate portfolio and benchmark weights (e.g., equally weighted vs. market cap weighted)
+#     port_weights_data = np.random.dirichlet(np.ones(len(assets)), size=len(dates))
+#     bm_weights_data = np.array([[1/len(assets)] * len(assets)] * len(dates))
+#
+#     portfolio_weights = pd.DataFrame(port_weights_data, index=dates, columns=assets)
+#     benchmark_weights = pd.DataFrame(bm_weights_data, index=dates, columns=assets)
+#
+#     # Simulate asset returns
+#     portfolio_returns = pd.DataFrame(np.random.randn(len(dates), len(assets)) * 0.01, index=dates, columns=assets)
+#     benchmark_returns = pd.DataFrame(np.random.randn(len(dates), len(assets)) * 0.008, index=dates, columns=assets)
+#
+#     # Make portfolio slightly outperform benchmark for demo
+#     portfolio_returns['AssetA'] += 0.0005
+#
+#     # Perform attribution
+#     attribution_results = brinson_fachler_attribution(
+#         portfolio_weights, benchmark_weights, portfolio_returns, benchmark_returns
+#     )
+#     print("\nBrinson-Fachler Attribution Results:")
+#     for key, value in attribution_results.items():
+#         print(f"{key}: {value:.4f}")
+#
+#     # Example with actual portfolio returns (from backtest equity curve)
+#     # Assume 'backtest_results' from Section 6 is available, specifically its 'equity_curve'
+#     # if 'GOOG_signals_ma' in processed_data and 'equity_curve' in backtest_results:
+#     #     equity_curve_series = backtest_results['equity_curve']['portfolio_value']
+#     #     portfolio_daily_returns = equity_curve_series.pct_change().dropna()
+#     #
+#     #     # For benchmark, we would need actual benchmark returns (e.g., SPY daily returns)
+#     #     # Let's use a dummy benchmark for now
+#     #     dummy_benchmark_returns = pd.Series(np.random.randn(len(portfolio_daily_returns)) * 0.005, index=portfolio_daily_returns.index)
+#     #
+#     #     sharpe = calculate_sharpe_ratio(portfolio_daily_returns, risk_free_rate=0.0)
+#     #     sortino = calculate_sortino_ratio(portfolio_daily_returns, risk_free_rate=0.0)
+#     #
+#     #     print(f"\nPortfolio Sharpe Ratio: {sharpe:.4f}")
+#     #     print(f"Portfolio Sortino Ratio: {sortino:.4f}")
+
+logger.info("Performance attribution and ratio functions defined.")
