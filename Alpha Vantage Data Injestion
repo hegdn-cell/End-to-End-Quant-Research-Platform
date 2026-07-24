@@ -1,0 +1,64 @@
+# --- Alpha Vantage Data Ingestion ---
+
+!pip install alpha_vantage
+from alpha_vantage.timeseries import TimeSeries
+
+# Assuming Alpha Vantage API key is stored in Colab secrets as 'ALPHA_VANTAGE_API_KEY'
+try:
+    from google.colab import userdata
+    ALPHA_VANTAGE_API_KEY = userdata.get('ALPHA_VANTAGE_API_KEY', "YOUR_ALPHA_VANTAGE_API_KEY")
+except ImportError:
+    ALPHA_VANTAGE_API_KEY = "YOUR_ALPHA_VANTAGE_API_KEY"
+
+# Note: Alpha Vantage free tier has rate limits (5 calls per minute, 500 calls per day).
+# Consider this when designing data ingestion frequency.
+
+ts = TimeSeries(key=ALPHA_VANTAGE_API_KEY, output_format='pandas')
+
+def fetch_alpha_vantage_data(ticker: str, outputsize: str = 'full') -> pd.DataFrame:
+    """
+    Fetches historical stock data from Alpha Vantage.
+
+    Args:
+        ticker (str): Stock ticker symbol (e.g., 'IBM').
+        outputsize (str): 'compact' returns last 100 data points, 'full' returns full history.
+
+    Returns:
+        pd.DataFrame: DataFrame containing historical stock data.
+                      Returns an empty DataFrame if data fetching fails.
+    """
+    logger.info(f"Fetching {ticker} data from Alpha Vantage (outputsize: {outputsize})")
+    try:
+        data, meta_data = ts.get_daily_adjusted(symbol=ticker, outputsize=outputsize)
+        if data.empty:
+            logger.warning(f"No data found for {ticker} from Alpha Vantage.")
+            return pd.DataFrame()
+        else:
+            data.index = pd.to_datetime(data.index)
+            data = data.rename(columns={
+                '1. open': 'open',
+                '2. high': 'high',
+                '3. low': 'low',
+                '4. close': 'close',
+                '5. adjusted close': 'adjusted_close',
+                '6. volume': 'volume',
+                '7. dividend amount': 'dividend_amount',
+                '8. split coefficient': 'split_coefficient'
+            })
+            data['ticker'] = ticker
+            logger.info(f"Successfully fetched {len(data)} rows for {ticker} from Alpha Vantage.")
+            return data
+    except Exception as e:
+        logger.error(f"Error fetching data for {ticker} from Alpha Vantage: {e}")
+        return pd.DataFrame()
+
+# Example Usage: (This will be moved to a dedicated execution cell later)
+# if __name__ == '__main__':
+#     # Fetch full historical data for IBM
+#     ibm_av_df = fetch_alpha_vantage_data('IBM', outputsize='compact') # Use 'compact' for quick testing due to rate limits
+#     if not ibm_av_df.empty:
+#         print(ibm_av_df.head())
+#         ibm_av_df.to_csv(os.path.join(DATA_DIR, 'IBM_alpha_vantage_historical.csv'))
+#         logger.info(f"Saved IBM Alpha Vantage data to {os.path.join(DATA_DIR, 'IBM_alpha_vantage_historical.csv')}")
+
+logger.info("Alpha Vantage data ingestion function defined. Proceeding with SEC EDGAR.")
