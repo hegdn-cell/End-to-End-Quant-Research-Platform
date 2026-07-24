@@ -1,0 +1,30 @@
+# --- SECTION 1: Configuration and Environment Setup ---
+
+# Securely store your API keys. In Colab, you can use the 'Secrets' tab (🔑 icon on the left).
+# Name your secrets like `YAHOO_FINANCE_API_KEY`, `POLYGON_API_KEY`, etc.
+# For demonstration, we'll use placeholder strings. Replace them with actual API key retrieval.
+
+# Example: Fetching API keys from Colab secrets (recommended for security)
+try:
+    from google.colab import userdata
+    YAHOO_FINANCE_API_KEY = userdata.get('YAHOO_FINANCE_API_KEY', "YOUR_YAHOO_FINANCE_API_KEY")
+    POLYGON_API_KEY = userdata.get('POLYGON_API_KEY', "YOUR_POLYGON_API_KEY")
+    ALPHA_VANTAGE_API_KEY = userdata.get('ALPHA_VANTAGE_API_KEY', "YOUR_ALPHA_VANTAGE_API_KEY")
+    # Add other API keys as needed
+except ImportError:
+    print("Running outside Colab or userdata not available. Using placeholder API keys.")
+    YAHOO_FINANCE_API_KEY = "YOUR_YAHOO_FINANCE_API_KEY"
+    POLYGON_API_KEY = "YOUR_POLYGON_API_KEY"
+    ALPHA_VANTAGE_API_KEY = "YOUR_ALPHA_VANTAGE_API_KEY"
+
+# Define data storage paths (e.g., for CSVs, Parquet files, or a local database)
+DATA_DIR = "./quant_data"
+import os
+os.makedirs(DATA_DIR, exist_ok=True)
+
+# Configure logging (optional but good practice for production systems)
+import logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+logger.info("Configuration and Environment Setup complete.")
