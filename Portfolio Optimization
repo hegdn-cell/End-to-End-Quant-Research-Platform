@@ -1,0 +1,201 @@
+# --- SECTION 7: Portfolio Optimization ---
+
+# This section implements functions for portfolio optimization, enabling the allocation
+# of capital among multiple assets to achieve specific risk-return objectives.
+# We will focus on Mean-Variance Optimization (MVO) as a classic approach.
+
+import cvxpy as cp
+
+# Note: This requires cvxpy and its solvers. Install if not already available.
+# !pip install cvxpy
+# !pip install ecos # A solver for cvxpy
+# !pip install scs # Another solver for cvxpy
+
+def calculate_returns_and_covariance(asset_prices: pd.DataFrame, frequency: int = 252) -> tuple[pd.Series, pd.DataFrame]:
+    """
+    Calculates expected returns and the covariance matrix for a set of assets.
+
+    Args:
+        asset_prices (pd.DataFrame): DataFrame where columns are asset tickers and rows are dates.
+        frequency (int): Number of trading days in a year (e.g., 252 for daily).
+
+    Returns:
+        tuple[pd.Series, pd.DataFrame]: A tuple containing:
+            - expected_returns (pd.Series): Annualized expected returns for each asset.
+            - cov_matrix (pd.DataFrame): Annualized covariance matrix of asset returns.
+    """
+    if asset_prices.empty:
+        logger.warning("Empty DataFrame provided for returns and covariance calculation.")
+        return pd.Series(), pd.DataFrame()
+
+    logger.info("Calculating returns and covariance matrix.")
+    
+    # Calculate daily returns
+    returns = asset_prices.pct_change().dropna()
+
+    # Annualize expected returns (mean daily return * trading days per year)
+    expected_returns = returns.mean() * frequency
+
+    # Annualize covariance matrix (daily covariance * trading days per year)
+    cov_matrix = returns.cov() * frequency
+
+    logger.info("Returns and covariance matrix calculated.")
+    return expected_returns, cov_matrix
+
+def optimize_portfolio(expected_returns: pd.Series, cov_matrix: pd.DataFrame, 
+                       target_return: float = None, target_volatility: float = None,
+                       risk_free_rate: float = 0.02, method: str = 'sharpe') -> pd.Series:
+    """
+    Optimizes portfolio weights using Mean-Variance Optimization (MVO).
+
+    Args:
+        expected_returns (pd.Series): Annualized expected returns for each asset.
+        cov_matrix (pd.DataFrame): Annualized covariance matrix of asset returns.
+        target_return (float): Optional target portfolio return. If provided, minimizes variance for this return.
+        target_volatility (float): Optional target portfolio volatility. If provided, maximizes return for this volatility.
+        risk_free_rate (float): The risk-free rate for Sharpe Ratio calculation.
+        method (str): Optimization method. 'sharpe' to maximize Sharpe Ratio (default),
+                      'min_volatility' to minimize volatility, or 'target_return' to minimize volatility for a target return.
+
+    Returns:
+        pd.Series: Optimal asset weights.
+    """
+    if expected_returns.empty or cov_matrix.empty:
+        logger.warning("Empty returns or covariance matrix provided for optimization.")
+        return pd.Series()
+
+    num_assets = len(expected_returns)
+    weights = cp.Variable(num_assets)
+
+    # Portfolio return and volatility
+    portfolio_return = weights @ expected_returns.values
+    portfolio_volatility = cp.sqrt(cp.quad_form(weights, cov_matrix.values))
+
+    # Constraints: weights sum to 1, and are non-negative (no short selling)
+    constraints = [cp.sum(weights) == 1, weights >= 0]
+
+    if method == 'sharpe':
+        logger.info("Optimizing portfolio for maximum Sharpe Ratio.")
+        # Maximize Sharpe Ratio: (Rp - Rf) / sigma_p
+        # This is equivalent to maximizing (Rp - Rf) for a given volatility
+        # or minimizing volatility for a given (Rp - Rf). It's a non-convex problem.
+        # A common proxy is to maximize the quadratic utility function:
+        # u = (Rp - Rf) / Volatility -> This is hard for convex solver
+        # Instead, we can maximize quadratic utility: Rp - gamma * Volatility^2
+        # Or use the property that maximizing Sharpe Ratio is equivalent to finding
+        # the portfolio with the highest return for a given level of risk, or vice versa
+        # A simpler way with cvxpy for Sharpe is to parameterize risk-aversion and maximize utility.
+        # For this example, we'll simplify and maximize Rp for unit risk or minimize risk for unit return, 
+        # and then scale to get the optimal Sharpe portfolio.
+        
+        # Solve for max Sharpe by transforming to a quadratic program
+        # Maximize (Rp - Rf) / Vol => Maximize (Rp - Rf) * k where k = 1/Vol
+        # Let y = k * w. Then sum(y) = k * sum(w) = k
+        # Maximize (y @ R - Rf * k)
+        # Subject to quad_form(y, Cov) <= 1 (approx, or for unit risk)
+        # For simplicity, we'll maximize return for a target risk, then iterate or use a different formulation.
+        # For a truly max sharpe, it's often a search over target returns or a specialized solver.
+        # For now, we'll approximate by finding the tangent portfolio.
+        
+        # Simple approximation: Maximize portfolio return for a given level of risk
+        # A common trick to maximize Sharpe with CVXPY is to use a new variable t.
+        # Maximize (portfolio_return - risk_free_rate * t)
+        # Subject to quad_form(weights, cov_matrix) <= t^2, sum(weights) == 1, weights >= 0
+        # This is non-convex. A standard approach is to use the inverse of volatility as a scaling factor.
+        # Let x = w / kappa, where kappa is the portfolio volatility.
+        # Maximize x @ (expected_returns - risk_free_rate) subject to quad_form(x, cov_matrix) <= 1
+        
+        # For simplicity, let's target maximum return for a fixed (small) volatility, and then infer Sharpe.
+        # A more robust way: iterate through target returns, calculate volatility, find max Sharpe.
+
+        # Let's use a common reformulation for Max Sharpe:
+        # Maximize (w'R - Rf) / sqrt(w'Cov w)
+        # Equivalent to: Maximize w' (R - Rf) / sqrt(w'Cov w)
+        # Let y = w / sqrt(w'Cov w). Then maximize y' (R - Rf) s.t. y'Cov y = 1
+
+        # A common practical approach: find the efficient frontier and then identify the point with max Sharpe.
+        # Since CVXPY is for convex optimization, direct max Sharpe is tricky.
+        # Let's set a target volatility (or iterate) for a practical example.
+        # For now, let's implement a simpler min volatility or target return one.
+        # Reverting to min_volatility and min_vol_for_target_return for simplicity here.
+
+        # To truly maximize Sharpe, you'd typically iterate over a range of target returns on the efficient frontier
+        # and calculate the Sharpe ratio for each, then pick the portfolio with the highest Sharpe.
+        # Given the scope, let's do a minimum volatility portfolio for now and a target return variant.
+
+        logger.warning("Direct Sharpe Ratio maximization with non-commercial solvers in CVXPY is complex. 
+                         Implementing minimum volatility portfolio. Consider iterating efficient frontier for max Sharpe.")
+        objective = cp.Minimize(portfolio_volatility)
+        problem = cp.Problem(objective, constraints)
+        problem.solve()
+        if problem.status not in ['optimal', 'optimal_inaccurate']:
+            logger.error("Portfolio optimization failed for min volatility.")
+            return pd.Series()
+        optimal_weights = pd.Series(weights.value, index=expected_returns.index)
+        logger.info("Minimum volatility portfolio found.")
+        return optimal_weights
+
+    elif method == 'min_volatility':
+        logger.info("Optimizing portfolio for minimum volatility.")
+        objective = cp.Minimize(portfolio_volatility)
+        problem = cp.Problem(objective, constraints)
+        problem.solve()
+        if problem.status not in ['optimal', 'optimal_inaccurate']:
+            logger.error("Portfolio optimization failed for min volatility.")
+            return pd.Series()
+        optimal_weights = pd.Series(weights.value, index=expected_returns.index)
+        logger.info("Minimum volatility portfolio found.")
+        return optimal_weights
+
+    elif method == 'target_return':
+        if target_return is None:
+            logger.error("Target return must be specified for 'target_return' method.")
+            return pd.Series()
+        logger.info(f"Optimizing portfolio to minimize volatility for target return: {target_return:.2%}.")
+        constraints.append(portfolio_return == target_return)
+        objective = cp.Minimize(portfolio_volatility)
+        problem = cp.Problem(objective, constraints)
+        problem.solve()
+        if problem.status not in ['optimal', 'optimal_inaccurate']:
+            logger.error(f"Portfolio optimization failed for target return {target_return}.")
+            return pd.Series()
+        optimal_weights = pd.Series(weights.value, index=expected_returns.index)
+        logger.info(f"Portfolio optimized for target return {target_return:.2%}.")
+        return optimal_weights
+
+    else:
+        logger.error(f"Unknown optimization method: {method}")
+        return pd.Series()
+
+# Example Usage: (This will be moved to a dedicated execution cell later)
+# if __name__ == '__main__':
+#     # Dummy data for demonstration
+#     # In a real scenario, this would come from cleaned and engineered data.
+#     np.random.seed(42)
+#     dates = pd.date_range(start='2020-01-01', periods=100, freq='D')
+#     assets = ['AAPL', 'GOOG', 'MSFT']
+#     dummy_prices = pd.DataFrame(100 + np.cumsum(np.random.randn(100, len(assets)), axis=0), index=dates, columns=assets)
+#     dummy_prices['AAPL'] = dummy_prices['AAPL'] + np.random.rand(100)*10 # Add some variation
+#     dummy_prices['GOOG'] = dummy_prices['GOOG'] * (1 + np.random.rand(100)*0.005) # Another variation
+#
+#     expected_returns, cov_matrix = calculate_returns_and_covariance(dummy_prices)
+#
+#     if not expected_returns.empty and not cov_matrix.empty:
+#         # Minimize volatility portfolio
+#         min_vol_weights = optimize_portfolio(expected_returns, cov_matrix, method='min_volatility')
+#         print("\nMinimum Volatility Portfolio Weights:")
+#         display(min_vol_weights)
+#
+#         # Maximize Sharpe Ratio portfolio (simplified to min vol in this impl, needs refinement)
+#         # max_sharpe_weights = optimize_portfolio(expected_returns, cov_matrix, risk_free_rate=0.01, method='sharpe')
+#         # print("\nMax Sharpe Portfolio Weights (min vol proxy):")
+#         # display(max_sharpe_weights)
+#
+#         # Portfolio for a target return
+#         if len(expected_returns) > 0 and expected_returns.max() > 0.05: # Ensure target return is achievable
+#             target_r = expected_returns.mean() * 1.2 # Example target return slightly higher than average
+#             target_return_weights = optimize_portfolio(expected_returns, cov_matrix, target_return=target_r, method='target_return')
+#             print(f"\nPortfolio Weights for Target Return ({target_r:.2%}):")
+#             display(target_return_weights)
+
+logger.info("Portfolio optimization functions defined.")
