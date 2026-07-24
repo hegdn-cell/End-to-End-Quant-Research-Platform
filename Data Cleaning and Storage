@@ -1,0 +1,121 @@
+# --- SECTION 3: Data Cleaning and Storage ---
+
+# This section focuses on functions to clean, standardize, and store the data 
+# fetched from various sources.
+
+def clean_historical_data(df: pd.DataFrame, source: str) -> pd.DataFrame:
+    """
+    Cleans and standardizes historical data from different sources.
+
+    Args:
+        df (pd.DataFrame): The raw DataFrame from a data source.
+        source (str): The name of the data source (e.g., 'yahoo', 'fred', 'polygon', 'alpha_vantage').
+
+    Returns:
+        pd.DataFrame: A cleaned and standardized DataFrame.
+    """
+    if df.empty:
+        logger.warning(f"Empty DataFrame provided for cleaning from {source}.")
+        return pd.DataFrame()
+
+    logger.info(f"Cleaning data from {source}.")
+
+    # Ensure index is datetime and sorted
+    if 'date' in df.columns:
+        df['date'] = pd.to_datetime(df['date'])
+        df = df.set_index('date').sort_index()
+    elif not isinstance(df.index, pd.DatetimeIndex):
+        df.index = pd.to_datetime(df.index)
+        df = df.sort_index()
+
+    # Handle missing values: Forward-fill for most financial series, drop for specific cases
+    # For price data, ffill is often appropriate for short gaps. For volume, 0 or mean.
+    if 'volume' in df.columns:
+        df['volume'] = df['volume'].fillna(0) # Assume 0 volume if missing
+    
+    # Fill other numerical columns (like prices) using forward fill
+    numeric_cols = df.select_dtypes(include=np.number).columns
+    if not numeric_cols.empty:
+        df[numeric_cols] = df[numeric_cols].fillna(method='ffill')
+        df[numeric_cols] = df[numeric_cols].fillna(method='bfill') # Backward fill any remaining NaNs at the start
+    
+    # Drop any rows that still have NaNs (e.g., if a series starts with NaNs)
+    initial_rows = len(df)
+    df = df.dropna()
+    if len(df) < initial_rows:
+        logger.warning(f"Dropped {initial_rows - len(df)} rows due to remaining NaNs after filling.")
+
+    # Standardize column names across sources if necessary (already done during fetch for some)
+    # Example: ensuring 'close' and 'adjusted_close' are consistently named
+    if 'adjusted_close' in df.columns and 'close' in df.columns and source == 'alpha_vantage':
+        df['close'] = df['adjusted_close'] # Use adjusted close as the primary close price
+        df = df.drop(columns=['adjusted_close'])
+    
+    # Ensure numeric types
+    for col in ['open', 'high', 'low', 'close', 'volume']:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+            
+    logger.info(f"Data from {source} cleaned. Shape: {df.shape}")
+    return df
+
+def store_data(df: pd.DataFrame, filename: str, sub_dir: str = '', format: str = 'csv') -> str:
+    """
+    Stores a DataFrame to disk in the specified format.
+
+    Args:
+        df (pd.DataFrame): The DataFrame to store.
+        filename (str): The name of the file (without extension).
+        sub_dir (str): Optional subdirectory within DATA_DIR.
+        format (str): The file format ('csv', 'parquet').
+
+    Returns:
+        str: The full path to the stored file.
+    """
+    if df.empty:
+        logger.warning(f"Attempted to store an empty DataFrame for {filename}.")
+        return ""
+
+    storage_path = os.path.join(DATA_DIR, sub_dir)
+    os.makedirs(storage_path, exist_ok=True)
+
+    full_path = os.path.join(storage_path, f"{filename}.{format}")
+    try:
+        if format == 'csv':
+            df.to_csv(full_path, index=True) # Assuming datetime index should be saved
+        elif format == 'parquet':
+            df.to_parquet(full_path, index=True)
+        else:
+            logger.error(f"Unsupported storage format: {format}")
+            return ""
+        logger.info(f"Successfully stored data to {full_path}")
+        return full_path
+    except Exception as e:
+        logger.error(f"Error storing data to {full_path}: {e}")
+        return ""
+
+# Dictionary to hold all processed DataFrames
+# This serves as an in-memory data store for the current session.
+# For persistent storage, the `store_data` function should be used.
+processed_data = {}
+
+# Example of how these functions would be used together (this will be in a separate execution cell later)
+# if __name__ == '__main__':
+#     # Fetch some sample data (e.g., from Yahoo Finance)
+#     end_date_str = datetime.now().strftime('%Y-%m-%d')
+#     start_date_str = (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d')
+#     sample_df = fetch_yahoo_finance_data('GOOG', start_date_str, end_date_str)
+#
+#     if not sample_df.empty:
+#         # Clean the data
+#         cleaned_df = clean_historical_data(sample_df, 'yahoo')
+#
+#         # Store the cleaned data
+#         store_path = store_data(cleaned_df, 'GOOG_cleaned', sub_dir='historical_prices', format='parquet')
+#
+#         # Add to in-memory store
+#         processed_data['GOOG_historical'] = cleaned_df
+#         print("Cleaned and stored GOOG data:")
+#         display(processed_data['GOOG_historical'].head())
+
+logger.info("Data cleaning and storage functions defined.")
