@@ -1,0 +1,173 @@
+# --- SECTION 6: Backtesting Engine ---
+
+# This section implements a basic backtesting engine to simulate trading strategies
+# based on the generated signals, considering transaction costs and slippage.
+
+from collections import defaultdict
+
+class Backtester:
+    """
+    A simple backtesting engine to simulate trading strategies.
+    """
+    def __init__(self,
+                 initial_capital: float = 100000.0,
+                 commission: float = 0.001,  # 0.1% commission per trade
+                 slippage_bps: float = 1.0, # 1 basis point slippage
+                 ).
+        self.initial_capital = initial_capital
+        self.capital = initial_capital
+        self.commission = commission
+        self.slippage_bps = slippage_bps
+        self.positions = defaultdict(float)  # {ticker: shares}
+        self.portfolio_value_history = []
+        self.trades = []
+        self.current_date = None
+        logger.info(f"Backtester initialized with capital: {initial_capital}, commission: {commission}, slippage: {slippage_bps} bps.")
+
+    def _calculate_market_value(self, data_row: pd.Series) -> float:
+        """
+        Calculates the current market value of all holdings.
+        """
+        market_value = 0.0
+        for ticker, shares in self.positions.items():
+            if shares != 0:
+                # Assuming 'close' price is available in data_row for the current ticker
+                # This requires data_row to contain prices for all held tickers if multi-asset
+                # For simplicity, assuming single asset backtest here, or data_row has all prices
+                try:
+                    if 'ticker' in data_row and data_row['ticker'] == ticker:
+                        market_value += shares * data_row['close']
+                    elif isinstance(data_row.name, pd.MultiIndex) and ticker in data_row.name.levels[0]:
+                         market_value += shares * data_row.loc[ticker, 'close'] # Multi-index case
+                    # Fallback for single ticker dataframe where ticker is implicitly handled
+                    elif 'close' in data_row and 'ticker' not in data_row:
+                        market_value += shares * data_row['close'] # Assumes data_row is for the only ticker
+                    else:
+                        logger.warning(f"Could not find price for {ticker} in data_row for market value calculation. Assuming 0 contribution.")
+                except KeyError:
+                     logger.warning(f"Price for {ticker} not found in data_row for market value calculation. Assuming 0 contribution.")
+                     continue
+        return market_value
+
+    def _execute_trade(self, ticker: str, signal: int, price: float, current_date: pd.Timestamp):
+        """
+        Executes a trade based on the signal.
+        signal = 1 for buy, -1 for sell.
+        """
+        trade_amount_dollars = self.capital * 0.99  # Attempt to allocate a large portion of capital for simplicity
+        if signal == 1:  # Buy signal
+            if self.capital > 0 and trade_amount_dollars > price * (1 + self.commission + self.slippage_bps/10000):
+                effective_price = price * (1 + self.slippage_bps / 10000)
+                shares_to_buy = trade_amount_dollars // (effective_price * (1 + self.commission))
+                cost = shares_to_buy * effective_price * (1 + self.commission)
+                if shares_to_buy > 0 and self.capital >= cost:
+                    self.positions[ticker] += shares_to_buy
+                    self.capital -= cost
+                    self.trades.append({
+                        'date': current_date,
+                        'ticker': ticker,
+                        'type': 'BUY',
+                        'shares': shares_to_buy,
+                        'price': effective_price,
+                        'cost': cost
+                    })
+                    logger.info(f"{current_date}: BUY {shares_to_buy:.2f} shares of {ticker} at {effective_price:.2f}")
+                else:
+                    logger.info(f"{current_date}: Not enough capital to BUY {ticker}")
+            else:
+                logger.info(f"{current_date}: Insufficient capital to execute BUY signal for {ticker}.")
+        elif signal == -1:  # Sell signal
+            if self.positions[ticker] > 0:
+                shares_to_sell = self.positions[ticker] # Sell all for simplicity
+                effective_price = price * (1 - self.slippage_bps / 10000)
+                revenue = shares_to_sell * effective_price * (1 - self.commission)
+                self.positions[ticker] -= shares_to_sell
+                self.capital += revenue
+                self.trades.append({
+                    'date': current_date,
+                    'ticker': ticker,
+                    'type': 'SELL',
+                    'shares': shares_to_sell,
+                    'price': effective_price,
+                    'revenue': revenue
+                })
+                logger.info(f"{current_date}: SELL {shares_to_sell:.2f} shares of {ticker} at {effective_price:.2f}")
+            else:
+                logger.info(f"{current_date}: No positions to SELL for {ticker}")
+
+    def run_backtest(self, data: pd.DataFrame, strategy_name: str = "MyStrategy") -> dict:
+        """
+        Runs the backtest over the historical data.
+
+        Args:
+            data (pd.DataFrame): DataFrame containing 'close' prices and 'signal' column.
+                                 Expected to be indexed by date and potentially ticker (for multi-asset).
+            strategy_name (str): Name of the strategy being backtested.
+
+        Returns:
+            dict: Dictionary containing backtest results (e.g., equity curve, trades).
+        """
+        if data.empty or 'close' not in data.columns or 'signal' not in data.columns:
+            logger.error("Invalid data for backtesting: missing 'close' or 'signal' column.")
+            return {}
+
+        logger.info(f"Starting backtest for strategy: {strategy_name}.")
+        self.portfolio_value_history = []
+        self.trades = []
+        self.capital = self.initial_capital # Reset capital for each backtest run
+        self.positions = defaultdict(float) # Reset positions
+
+        # Ensure data is sorted by date
+        data = data.sort_index()
+
+        # Determine if it's a single or multi-asset backtest
+        is_multi_asset = 'ticker' in data.columns.names or ('ticker' in data.index.names and len(data.index.get_level_values('ticker').unique()) > 1)
+
+        if is_multi_asset:
+            logger.warning("Multi-asset backtesting is advanced and this backtester has limited support.
+                             Assuming signals are generated per asset independently and trades are executed sequentially.")
+            # Example for multi-asset: Iterate through dates, then tickers
+            for date in data.index.get_level_values('date').unique():
+                self.current_date = date
+                daily_data = data.loc[date] # Get all data for this date
+                for ticker in daily_data.index.get_level_values('ticker').unique():
+                    row = daily_data.loc[ticker]
+                    if row['signal'] != 0:
+                        self._execute_trade(ticker, row['signal'], row['close'], date)
+                current_portfolio_value = self.capital + self._calculate_market_value(daily_data)
+                self.portfolio_value_history.append({'date': date, 'portfolio_value': current_portfolio_value})
+
+        else: # Single asset backtest
+            for index, row in data.iterrows():
+                self.current_date = index
+                ticker = row['ticker'] if 'ticker' in row else 'UNKNOWN'
+                if row['signal'] != 0:
+                    self._execute_trade(ticker, row['signal'], row['close'], index)
+                current_portfolio_value = self.capital + self._calculate_market_value(row) # Pass the single row for market value calc
+                self.portfolio_value_history.append({'date': index, 'portfolio_value': current_portfolio_value})
+
+        final_portfolio_value = self.portfolio_value_history[-1]['portfolio_value'] if self.portfolio_value_history else self.initial_capital
+        logger.info(f"Backtest finished for {strategy_name}. Final Portfolio Value: {final_portfolio_value:.2f}")
+
+        return {
+            'strategy_name': strategy_name,
+            'equity_curve': pd.DataFrame(self.portfolio_value_history).set_index('date'),
+            'trades': pd.DataFrame(self.trades)
+        }
+
+# Example Usage: (This will be moved to a dedicated execution cell later)
+# if __name__ == '__main__':
+#     # Assume 'processed_data' dict contains a DataFrame with signals, e.g., 'GOOG_signals_ma'
+#     if 'GOOG_signals_ma' in processed_data:
+#         backtester = Backtester(initial_capital=1_000_000, commission=0.0005, slippage_bps=0.5)
+#         backtest_results = backtester.run_backtest(processed_data['GOOG_signals_ma'], strategy_name="MA Crossover GOOG")
+#
+#         if backtest_results:
+#             equity_curve = backtest_results['equity_curve']
+#             trades_df = backtest_results['trades']
+#             print("Equity Curve Head:")
+#             display(equity_curve.head())
+#             print("Trades:")
+#             display(trades_df)
+
+logger.info("Backtesting engine functions defined.")
