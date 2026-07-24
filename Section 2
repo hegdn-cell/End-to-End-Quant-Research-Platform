@@ -1,0 +1,49 @@
+# --- SECTION 2: Automated Data Ingestion ---
+
+# This section will contain functions to fetch data from various financial APIs.
+# We'll start with Yahoo Finance for historical stock data, as it's commonly used and relatively straightforward.
+
+!pip install yfinance
+import yfinance as yf
+from datetime import datetime, timedelta
+
+def fetch_yahoo_finance_data(ticker: str, start_date: str, end_date: str) -> pd.DataFrame:
+    """
+    Fetches historical stock data from Yahoo Finance.
+
+    Args:
+        ticker (str): Stock ticker symbol (e.g., 'AAPL', 'MSFT').
+        start_date (str): Start date in 'YYYY-MM-DD' format.
+        end_date (str): End date in 'YYYY-MM-DD' format.
+
+    Returns:
+        pd.DataFrame: DataFrame containing historical stock data (Open, High, Low, Close, Adj Close, Volume).
+                      Returns an empty DataFrame if data fetching fails.
+    """
+    logger.info(f"Fetching {ticker} data from Yahoo Finance for {start_date} to {end_date}")
+    try:
+        data = yf.download(ticker, start=start_date, end=end_date)
+        if data.empty:
+            logger.warning(f"No data found for {ticker} within the specified date range.")
+        else:
+            data.index = pd.to_datetime(data.index)
+            data.columns = [col.replace(' ', '_').lower() for col in data.columns]
+            data['ticker'] = ticker # Add ticker column for multi-asset handling
+            logger.info(f"Successfully fetched {len(data)} rows for {ticker}.")
+        return data
+    except Exception as e:
+        logger.error(f"Error fetching data for {ticker} from Yahoo Finance: {e}")
+        return pd.DataFrame()
+
+# Example Usage: (This will be moved to a dedicated execution cell later)
+# if __name__ == '__main__':
+#     # For demonstration, fetch data for Apple Inc. (AAPL) for the last year
+#     end = datetime.now()
+#     start = end - timedelta(days=365)
+#     aapl_df = fetch_yahoo_finance_data('AAPL', start.strftime('%Y-%m-%d'), end.strftime('%Y-%m-%d'))
+#     if not aapl_df.empty:
+#         print(aapl_df.head())
+#         aapl_df.to_csv(os.path.join(DATA_DIR, 'AAPL_historical.csv'))
+#         logger.info(f"Saved AAPL data to {os.path.join(DATA_DIR, 'AAPL_historical.csv')}")
+
+logger.info("Yahoo Finance data ingestion function defined. Further API integrations will follow.")
