@@ -1,0 +1,135 @@
+# --- SECTION 5: Signal Generation ---
+
+# This section focuses on creating trading signals based on the engineered features.
+# Signals are typically boolean (True/False for buy/sell) or numerical (e.g., signal strength).
+
+def generate_moving_average_crossover_signal(df: pd.DataFrame, short_window: int = 10, long_window: int = 20) -> pd.Series:
+    """
+    Generates a simple moving average crossover signal.
+    A buy signal (1) is generated when the short-term SMA crosses above the long-term SMA.
+    A sell signal (-1) is generated when the short-term SMA crosses below the long-term SMA.
+    No signal (0) otherwise.
+
+    Args:
+        df (pd.DataFrame): DataFrame with 'close' prices and 'SMA_10', 'SMA_20' features.
+        short_window (int): Window for the short-term Simple Moving Average.
+        long_window (int): Window for the long-term Simple Moving Average.
+
+    Returns:
+        pd.Series: Series containing the trading signal (1 for buy, -1 for sell, 0 for hold).
+    """
+    if df.empty or f'SMA_{short_window}' not in df.columns or f'SMA_{long_window}' not in df.columns:
+        logger.warning("Missing required SMA columns for crossover signal. Returning empty series.")
+        return pd.Series(0, index=df.index)
+
+    logger.info(f"Generating MA crossover signal (short:{short_window}, long:{long_window}).")
+    
+    # Ensure the SMA columns are available, if not, compute them.
+    # For this, we'll assume they are already part of the engineered features.
+    short_sma = df[f'SMA_{short_window}']
+    long_sma = df[f'SMA_{long_window}']
+
+    signal = pd.Series(0, index=df.index, dtype=int)
+    
+    # Generate signals based on crossover
+    # When short_sma crosses above long_sma, signal is 1 (buy)
+    signal[short_sma > long_sma] = 1
+    # When short_sma crosses below long_sma, signal is -1 (sell)
+    signal[short_sma < long_sma] = -1
+
+    # Take the difference to identify the exact crossover points (changes from 0 to 1 or -1)
+    signal = signal.diff()
+    signal[signal > 0] = 1  # Buy signal only on upward cross
+    signal[signal < 0] = -1 # Sell signal only on downward cross
+    signal[(signal != 1) & (signal != -1)] = 0 # Hold otherwise
+
+    logger.info("MA crossover signal generated.")
+    return signal
+
+def generate_rsi_signal(df: pd.DataFrame, rsi_window: int = 14, overbought: int = 70, oversold: int = 30) -> pd.Series:
+    """
+    Generates an RSI-based trading signal.
+    A buy signal (1) when RSI crosses below oversold.
+    A sell signal (-1) when RSI crosses above overbought.
+
+    Args:
+        df (pd.DataFrame): DataFrame with 'RSI' feature.
+        rsi_window (int): Window for RSI calculation (should match feature engineering).
+        overbought (int): RSI level considered overbought.
+        oversold (int): RSI level considered oversold.
+
+    Returns:
+        pd.Series: Series containing the trading signal (1 for buy, -1 for sell, 0 for hold).
+    """
+    if df.empty or 'RSI' not in df.columns:
+        logger.warning("Missing 'RSI' column for RSI signal. Returning empty series.")
+        return pd.Series(0, index=df.index)
+
+    logger.info(f"Generating RSI signal (overbought:{overbought}, oversold:{oversold}).")
+    
+    rsi = df['RSI']
+    signal = pd.Series(0, index=df.index, dtype=int)
+
+    # Buy signal when RSI crosses below oversold
+    buy_condition = (rsi.shift(1) > oversold) & (rsi <= oversold)
+    signal[buy_condition] = 1
+
+    # Sell signal when RSI crosses above overbought
+    sell_condition = (rsi.shift(1) < overbought) & (rsi >= overbought)
+    signal[sell_condition] = -1
+
+    logger.info("RSI signal generated.")
+    return signal
+
+def generate_signals(features_df: pd.DataFrame, strategy: str = 'ma_crossover') -> pd.DataFrame:
+    """
+    Orchestrates the signal generation process.
+
+    Args:
+        features_df (pd.DataFrame): DataFrame with engineered features.
+        strategy (str): The signal generation strategy to use ('ma_crossover', 'rsi', etc.).
+
+    Returns:
+        pd.DataFrame: DataFrame with the generated signals.
+    """
+    if features_df.empty:
+        logger.warning("Empty DataFrame provided for signal generation.")
+        return pd.DataFrame()
+
+    logger.info(f"Generating signals using strategy: {strategy}.")
+
+    signals_df = features_df.copy()
+
+    if strategy == 'ma_crossover':
+        signals_df['signal'] = generate_moving_average_crossover_signal(signals_df)
+    elif strategy == 'rsi':
+        signals_df['signal'] = generate_rsi_signal(signals_df)
+    # Add more strategies here as functions above
+    # elif strategy == 'macd':
+    #     signals_df['signal'] = generate_macd_signal(signals_df)
+    else:
+        logger.error(f"Unknown signal strategy: {strategy}. No signal generated.")
+        signals_df['signal'] = 0
+
+    logger.info("Signal generation complete.")
+    return signals_df
+
+# Example Usage:
+# if __name__ == '__main__':
+#     # Assume 'processed_data' dict contains a feature-engineered DataFrame, e.g., 'GOOG_features'
+#     if 'GOOG_features' in processed_data:
+#         # Generate MA Crossover signals
+#         signals_ma = generate_signals(processed_data['GOOG_features'].copy(), strategy='ma_crossover')
+#         if not signals_ma.empty:
+#             processed_data['GOOG_signals_ma'] = signals_ma
+#             print("MA Crossover Signals for GOOG:")
+#             display(processed_data['GOOG_signals_ma'][['close', 'SMA_10', 'SMA_20', 'signal']].tail(20))
+#
+#         # Generate RSI signals
+#         signals_rsi = generate_signals(processed_data['GOOG_features'].copy(), strategy='rsi')
+#         if not signals_rsi.empty:
+#             processed_data['GOOG_signals_rsi'] = signals_rsi
+#             print("RSI Signals for GOOG:")
+#             display(processed_data['GOOG_signals_rsi'][['close', 'RSI', 'signal']].tail(20))
+
+logger.info("Signal generation functions defined.")
