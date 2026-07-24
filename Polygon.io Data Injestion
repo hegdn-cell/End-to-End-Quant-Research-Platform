@@ -1,0 +1,67 @@
+# --- Polygon.io Data Ingestion ---
+
+!pip install polygon-api-client
+from polygon import RESTClient
+
+def fetch_polygon_data(ticker: str, start_date: str, end_date: str, timespan: str = 'day', multiplier: int = 1) -> pd.DataFrame:
+    """
+    Fetches aggregated historical data from Polygon.io.
+
+    Args:
+        ticker (str): Stock ticker symbol (e.g., 'AAPL').
+        start_date (str): Start date in 'YYYY-MM-DD' format.
+        end_date (str): End date in 'YYYY-MM-DD' format.
+        timespan (str): Size of the aggregate time window (e.g., 'day', 'hour', 'minute').
+        multiplier (int): Size of the timespan window.
+
+    Returns:
+        pd.DataFrame: DataFrame containing historical data.
+                      Returns an empty DataFrame if data fetching fails.
+    """
+    logger.info(f"Fetching {ticker} data from Polygon.io for {start_date} to {end_date}")
+    try:
+        client = RESTClient(POLYGON_API_KEY)
+        aggs = client.get_aggs(
+            ticker=ticker,
+            multiplier=multiplier,
+            timespan=timespan,
+            from_=start_date,
+            to=end_date,
+            adjusted=True
+        )
+
+        if not aggs:
+            logger.warning(f"No data found for {ticker} from Polygon.io within the specified date range.")
+            return pd.DataFrame()
+
+        data = []
+        for agg in aggs:
+            data.append({
+                'date': datetime.fromtimestamp(agg.timestamp / 1000),
+                'open': agg.open,
+                'high': agg.high,
+                'low': agg.low,
+                'close': agg.close,
+                'volume': agg.volume
+            })
+        df = pd.DataFrame(data).set_index('date')
+        df['ticker'] = ticker
+        df.columns = [col.lower() if col != 'ticker' else col for col in df.columns]
+        logger.info(f"Successfully fetched {len(df)} rows for {ticker} from Polygon.io.")
+        return df
+    except Exception as e:
+        logger.error(f"Error fetching data for {ticker} from Polygon.io: {e}")
+        return pd.DataFrame()
+
+# Example Usage: (This will be moved to a dedicated execution cell later)
+# if __name__ == '__main__':
+#     # Fetch daily data for Microsoft (MSFT) for the last 6 months
+#     end = datetime.now()
+#     start = end - timedelta(days=180)
+#     msft_polygon_df = fetch_polygon_data('MSFT', start.strftime('%Y-%m-%d'), end.strftime('%Y-%m-%d'))
+#     if not msft_polygon_df.empty:
+#         print(msft_polygon_df.head())
+#         msft_polygon_df.to_csv(os.path.join(DATA_DIR, 'MSFT_polygon_historical.csv'))
+#         logger.info(f"Saved MSFT Polygon data to {os.path.join(DATA_DIR, 'MSFT_polygon_historical.csv')}")
+
+logger.info("Polygon.io data ingestion function defined. Proceeding with Alpha Vantage.")
