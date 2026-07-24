@@ -1,0 +1,170 @@
+# --- SECTION 8: Risk Management ---
+
+# This section provides functions for calculating key risk metrics such as Value at Risk (VaR),
+# Conditional Value at Risk (CVaR), and Maximum Drawdown. These metrics are crucial for
+# understanding and managing the risk profile of investment portfolios.
+
+import numpy as np
+import scipy.stats as stats
+
+def calculate_historical_var(returns: pd.Series, confidence_level: float = 0.99) -> float:
+    """
+    Calculates Historical Value at Risk (VaR).
+
+    Historical VaR is the loss value that will not be exceeded with a given probability
+    over a specified time horizon, based on past observations.
+
+    Args:
+        returns (pd.Series): Series of portfolio returns.
+        confidence_level (float): The confidence level (e.g., 0.99 for 99% VaR).
+
+    Returns:
+        float: The Historical VaR. (Returns positive value representing loss)
+    """
+    if returns.empty:
+        logger.warning("Empty returns series provided for Historical VaR calculation.")
+        return np.nan
+
+    logger.info(f"Calculating Historical VaR at {confidence_level*100:.0f}% confidence.")
+    var = -np.percentile(returns.dropna(), (1 - confidence_level) * 100)
+    logger.info(f"Historical VaR: {var:.4f}")
+    return var
+
+def calculate_parametric_var(returns: pd.Series, confidence_level: float = 0.99) -> float:
+    """
+    Calculates Parametric (Gaussian) Value at Risk (VaR).
+
+    Parametric VaR assumes that portfolio returns are normally distributed.
+
+    Args:
+        returns (pd.Series): Series of portfolio returns.
+        confidence_level (float): The confidence level (e.g., 0.99 for 99% VaR).
+
+    Returns:
+        float: The Parametric VaR. (Returns positive value representing loss)
+    """
+    if returns.empty:
+        logger.warning("Empty returns series provided for Parametric VaR calculation.")
+        return np.nan
+
+    logger.info(f"Calculating Parametric VaR at {confidence_level*100:.0f}% confidence.")
+    mu = returns.mean()
+    sigma = returns.std()
+    # Inverse cumulative distribution function (PPF) for a normal distribution
+    var = -(mu + sigma * stats.norm.ppf(1 - confidence_level))
+    logger.info(f"Parametric VaR: {var:.4f}")
+    return var
+
+def calculate_conditional_var(returns: pd.Series, confidence_level: float = 0.99) -> float:
+    """
+    Calculates Conditional Value at Risk (CVaR), also known as Expected Shortfall.
+
+    CVaR is the expected loss given that the loss is greater than or equal to the VaR.
+    It measures the average loss in the worst (1 - confidence_level)% of cases.
+
+    Args:
+        returns (pd.Series): Series of portfolio returns.
+        confidence_level (float): The confidence level (e.g., 0.99 for 99% CVaR).
+
+    Returns:
+        float: The Conditional VaR (CVaR). (Returns positive value representing loss)
+    """
+    if returns.empty:
+        logger.warning("Empty returns series provided for CVaR calculation.")
+        return np.nan
+
+    logger.info(f"Calculating Conditional VaR at {confidence_level*100:.0f}% confidence.")
+    # First, calculate Historical VaR as the threshold
+    var_threshold = calculate_historical_var(returns, confidence_level)
+    
+    # Filter returns that are worse than (or equal to) the VaR threshold
+    # Note: returns are usually negative for losses, VaR is reported as positive loss.
+    # So, we're looking for returns <= -var_threshold
+    shortfall_returns = returns[returns <= -var_threshold]
+    
+    if shortfall_returns.empty:
+        logger.warning("No returns found below VaR threshold for CVaR calculation. Returning VaR as CVaR.")
+        return var_threshold
+
+    cvar = -shortfall_returns.mean() # Average of losses beyond VaR, expressed as a positive loss
+    logger.info(f"Conditional VaR: {cvar:.4f}")
+    return cvar
+
+def calculate_max_drawdown(equity_curve: pd.Series) -> tuple[float, pd.Timestamp, pd.Timestamp]:
+    """
+    Calculates the Maximum Drawdown (MDD) of an equity curve.
+
+    MDD is the maximum observed loss from a peak to a trough of a portfolio,
+    before a new peak is attained. It is an indicator of downside risk over a specified time period.
+
+    Args:
+        equity_curve (pd.Series): Series of portfolio values over time.
+
+    Returns:
+        tuple[float, pd.Timestamp, pd.Timestamp]: A tuple containing:
+            - max_drawdown (float): The maximum drawdown as a positive percentage.
+            - peak_date (pd.Timestamp): Date of the peak before the maximum drawdown.
+            - trough_date (pd.Timestamp): Date of the trough during the maximum drawdown.
+    """
+    if equity_curve.empty:
+        logger.warning("Empty equity curve provided for Max Drawdown calculation.")
+        return 0.0, None, None
+
+    logger.info("Calculating Maximum Drawdown.")
+    # Calculate daily returns for equity curve (for robustness, though direct value can be used)
+    # We are using equity curve directly, not returns, to track peaks and troughs.
+    
+    # Calculate the running maximum (peak) for the equity curve
+    running_max = equity_curve.cummax()
+    
+    # Calculate the drawdown from the running maximum
+    drawdown = (equity_curve - running_max) / running_max
+    
+    # Find the maximum drawdown percentage
+    max_drawdown = drawdown.min()
+    
+    if max_drawdown == 0:
+        return 0.0, equity_curve.index[0], equity_curve.index[-1] # No drawdown
+
+    # Find the trough date (where max_drawdown occurred)
+    trough_date = drawdown.idxmin()
+    
+    # Find the peak date before the trough
+    # Get the equity value at the trough
+    trough_value = equity_curve.loc[trough_date]
+    # Find the maximum value before or at the trough_date
+    peak_date = equity_curve.loc[:trough_date].idxmax()
+
+    logger.info(f"Max Drawdown: {abs(max_drawdown):.2%}, Peak: {peak_date}, Trough: {trough_date}")
+    return abs(max_drawdown), peak_date, trough_date
+
+
+# Example Usage: (This will be moved to a dedicated execution cell later)
+# if __name__ == '__main____':
+#     # Assume 'backtest_results' from Section 6 is available, specifically its 'equity_curve'
+#     if 'GOOG_signals_ma' in processed_data and 'equity_curve' in backtest_results:
+#         equity_curve_series = backtest_results['equity_curve']['portfolio_value']
+#         
+#         # Calculate daily returns from the equity curve
+#         portfolio_returns = equity_curve_series.pct_change().dropna()
+#         
+#         if not portfolio_returns.empty:
+#             # VaR and CVaR calculations
+#             hist_var = calculate_historical_var(portfolio_returns)
+#             param_var = calculate_parametric_var(portfolio_returns)
+#             cvar = calculate_conditional_var(portfolio_returns)
+#             
+#             print(f"\nHistorical VaR (99%): {hist_var:.2%}")
+#             print(f"Parametric VaR (99%): {param_var:.2%}")
+#             print(f"Conditional VaR (99%): {cvar:.2%}")
+#         else:
+#             logger.warning("Cannot calculate VaR/CVaR: Portfolio returns are empty.")
+#
+#         # Max Drawdown calculation
+#         mdd, peak_d, trough_d = calculate_max_drawdown(equity_curve_series)
+#         if mdd > 0:
+#             print(f"\nMaximum Drawdown: {mdd:.2%} (Peak: {peak_d.strftime('%Y-%m-%d')}, Trough: {trough_d.strftime('%Y-%m-%d')})")
+#         else:
+#             print("\nNo drawdown observed or equity curve is empty.")
+
+logger.info("Risk management functions defined.")
