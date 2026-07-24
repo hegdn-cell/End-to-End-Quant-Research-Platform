@@ -1,0 +1,128 @@
+# --- SECTION 4: Feature Engineering ---
+
+# This section defines functions to engineer predictive features from the cleaned data.
+# These features can include technical indicators, statistical measures, or derived fundamental metrics.
+
+# !pip install ta # A popular library for technical analysis indicators
+
+import ta
+
+def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Adds a set of common technical analysis indicators to the DataFrame.
+    Requires 'high', 'low', 'close', 'volume' columns.
+
+    Args:
+        df (pd.DataFrame): DataFrame with historical price and volume data.
+
+    Returns:
+        pd.DataFrame: DataFrame with added technical indicators.
+    """
+    if df.empty:
+        logger.warning("Empty DataFrame provided for adding technical indicators.")
+        return pd.DataFrame()
+
+    logger.info(f"Adding technical indicators to DataFrame of shape {df.shape}.")
+
+    if not all(col in df.columns for col in ['high', 'low', 'close', 'volume']):
+        logger.warning("Missing required columns (high, low, close, volume) for technical indicators. Skipping.")
+        return df
+
+    # Moving Averages
+    df['SMA_10'] = ta.trend.sma_indicator(df['close'], window=10)
+    df['SMA_20'] = ta.trend.sma_indicator(df['close'], window=20)
+    df['EMA_10'] = ta.trend.ema_indicator(df['close'], window=10)
+    df['EMA_20'] = ta.trend.ema_indicator(df['close'], window=20)
+
+    # Relative Strength Index (RSI)
+    df['RSI'] = ta.momentum.rsi(df['close'], window=14)
+
+    # Moving Average Convergence Divergence (MACD)
+    df['MACD'] = ta.trend.macd(df['close'])
+    df['MACD_Signal'] = ta.trend.macd_signal(df['close'])
+    df['MACD_Diff'] = ta.trend.macd_diff(df['close'])
+
+    # Bollinger Bands
+    df['BB_High'] = ta.volatility.bollinger_hband(df['close'])
+    df['BB_Low'] = ta.volatility.bollinger_lband(df['close'])
+    df['BB_Middle'] = ta.volatility.bollinger_mavg(df['close'])
+
+    # Volume-based indicators (e.g., On-Balance Volume)
+    df['OBV'] = ta.volume.on_balance_volume(df['close'], df['volume'])
+
+    logger.info("Technical indicators added.")
+    return df
+
+def add_statistical_features(df: pd.DataFrame, window: int = 20) -> pd.DataFrame:
+    """
+    Adds statistical features like rolling volatility and skewness.
+
+    Args:
+        df (pd.DataFrame): DataFrame with 'close' price data.
+        window (int): Rolling window for statistical calculations.
+
+    Returns:
+        pd.DataFrame: DataFrame with added statistical features.
+    """
+    if df.empty or 'close' not in df.columns:
+        logger.warning("Empty DataFrame or missing 'close' column for statistical features. Skipping.")
+        return pd.DataFrame()
+
+    logger.info(f"Adding statistical features to DataFrame with window {window}.")
+
+    df['Log_Returns'] = np.log(df['close'] / df['close'].shift(1))
+    df['Volatility'] = df['Log_Returns'].rolling(window=window).std() * np.sqrt(252) # Annualized volatility
+    df['Skewness'] = df['Log_Returns'].rolling(window=window).skew()
+    df['Kurtosis'] = df['Log_Returns'].rolling(window=window).kurt()
+
+    logger.info("Statistical features added.")
+    return df
+
+def engineer_features(df: pd.DataFrame, source: str) -> pd.DataFrame:
+    """
+    Orchestrates the feature engineering process for a given DataFrame.
+
+    Args:
+        df (pd.DataFrame): The cleaned DataFrame.
+        source (str): The source of the data (e.g., 'yahoo', 'fred').
+
+    Returns:
+        pd.DataFrame: DataFrame with all engineered features.
+    """
+    if df.empty:
+        logger.warning("Empty DataFrame provided for feature engineering.")
+        return pd.DataFrame()
+
+    logger.info(f"Starting feature engineering for data from {source}.")
+
+    if source in ['yahoo', 'polygon', 'alpha_vantage']:
+        df = add_technical_indicators(df.copy())
+        df = add_statistical_features(df.copy())
+    # Add logic for FRED or SEC EDGAR features here if applicable
+    # elif source == 'fred':
+    #     # Example: lag features for economic data
+    #     for col in df.columns:
+    #         if df[col].dtype in ['float64', 'int64']:
+    #             df[f'{col}_lag1'] = df[col].shift(1)
+
+    # Drop rows with NaN values that result from feature calculation (e.g., initial rolling window)
+    initial_rows = len(df)
+    df = df.dropna()
+    if len(df) < initial_rows:
+        logger.warning(f"Dropped {initial_rows - len(df)} rows after feature engineering due to NaNs.")
+
+    logger.info(f"Feature engineering complete. DataFrame shape: {df.shape}")
+    return df
+
+# Example Usage:
+# if __name__ == '__main__':
+#     # Assume 'processed_data' dict contains a cleaned DataFrame, e.g., 'GOOG_historical'
+#     if 'GOOG_historical' in processed_data:
+#         features_df = engineer_features(processed_data['GOOG_historical'].copy(), 'yahoo')
+#         if not features_df.empty:
+#             processed_data['GOOG_features'] = features_df
+#             print("Features engineered for GOOG:")
+#             display(processed_data['GOOG_features'].head())
+#             display(processed_data['GOOG_features'].tail())
+
+logger.info("Feature engineering functions defined.")
