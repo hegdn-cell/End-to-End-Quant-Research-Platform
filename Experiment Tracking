@@ -1,0 +1,131 @@
+# --- SECTION 10: Experiment Tracking (MLflow Integration) ---
+
+# This section integrates MLflow to track, compare, and manage various aspects of quantitative
+# research experiments, including strategy parameters, performance metrics, and artifacts.
+
+# MLflow was imported in the initial setup cell (PJChChMLGP-A).
+# Ensure your MLflow tracking URI is set. For local tracking, it's typically './mlruns'.
+# For remote tracking, you would configure it to a server (e.g., 'http://localhost:5000').
+
+import mlflow
+import mlflow.pyfunc # For logging models with custom Python logic
+import json
+
+# Configure MLflow tracking URI (can be a local path or a remote server)
+MLFLOW_TRACKING_URI = "./mlruns"
+mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
+logger.info(f"MLflow Tracking URI set to: {MLFLOW_TRACKING_URI}")
+
+# Set an experiment name (this will create an experiment if it doesn't exist)
+EXPERIMENT_NAME = "Quantitative_Research_Platform"
+mlflow.set_experiment(EXPERIMENT_NAME)
+logger.info(f"MLflow Experiment set to: {EXPERIMENT_NAME}")
+
+def log_experiment_results(params: dict, metrics: dict, artifacts: dict = None, model: object = None, model_name: str = "StrategyModel"):
+    """
+    Logs experiment parameters, metrics, and artifacts to MLflow.
+
+    Args:
+        params (dict): Dictionary of parameters used in the experiment (e.g., strategy parameters).
+        metrics (dict): Dictionary of performance metrics (e.g., Sharpe, Sortino, MDD).
+        artifacts (dict): Optional dictionary where keys are artifact names and values are file paths.
+        model (object): Optional trained model object to log (e.g., a sklearn model, or custom class).
+                        If a custom class, it should be MLflow-compatible or wrapped.
+        model_name (str): Name for the logged model.
+    """
+    with mlflow.start_run():
+        run_id = mlflow.active_run().info.run_id
+        logger.info(f"MLflow Run Started with ID: {run_id}")
+
+        # Log parameters
+        mlflow.log_params(params)
+        logger.info(f"Logged parameters: {params}")
+
+        # Log metrics
+        mlflow.log_metrics(metrics)
+        logger.info(f"Logged metrics: {metrics}")
+
+        # Log artifacts (e.g., equity curve plot, trade log CSV)
+        if artifacts:
+            for artifact_name, artifact_path in artifacts.items():
+                if os.path.exists(artifact_path):
+                    mlflow.log_artifact(local_path=artifact_path, artifact_path=artifact_name)
+                    logger.info(f"Logged artifact: {artifact_path} as {artifact_name}")
+                else:
+                    logger.warning(f"Artifact file not found: {artifact_path}")
+
+        # Log model (if provided)
+        if model:
+            try:
+                # For generic Python objects or custom classes, use mlflow.pyfunc.log_model
+                # This requires a pyfunc model wrapper if the model isn't natively supported
+                # For now, let's assume a simple case or a path to a model file.
+                mlflow.pyfunc.log_model(python_model=model, artifact_path=model_name)
+                logger.info(f"Logged model: {model_name}")
+            except Exception as e:
+                logger.error(f"Error logging model {model_name} to MLflow: {e}")
+        
+        logger.info(f"MLflow Run {run_id} Finished.")
+
+def load_mlflow_model(run_id: str, model_name: str = "StrategyModel"):
+    """
+    Loads a model logged with MLflow.
+
+    Args:
+        run_id (str): The MLflow run ID where the model was logged.
+        model_name (str): The artifact path/name of the model within the run.
+
+    Returns:
+        object: The loaded model object, or None if loading fails.
+    """
+    try:
+        model_uri = f"runs:/{run_id}/{model_name}"
+        loaded_model = mlflow.pyfunc.load_model(model_uri)
+        logger.info(f"Successfully loaded model from {model_uri}")
+        return loaded_model
+    except Exception as e:
+        logger.error(f"Error loading MLflow model {model_name} from run {run_id}: {e}")
+        return None
+
+
+# Example Usage: (This will be moved to a dedicated execution cell later)
+# if __name__ == '__main__':
+#     # Assume we have parameters, metrics, and possibly artifacts from a backtest
+#     mock_params = {
+#         "strategy": "MA Crossover",
+#         "short_window": 10,
+#         "long_window": 20,
+#         "initial_capital": 1_000_000,
+#         "commission": 0.0005
+#     }
+#
+#     mock_metrics = {
+#         "final_portfolio_value": 1_250_000,
+#         "total_return": 0.25,
+#         "sharpe_ratio": 1.2,
+#         "max_drawdown": 0.10,
+#         "allocation_effect": 0.01,
+#         "selection_effect": 0.02
+#     }
+#
+#     # Create dummy artifact files for demonstration
+#     equity_curve_path = os.path.join(DATA_DIR, "mock_equity_curve.csv")
+#     with open(equity_curve_path, 'w') as f:
+#         f.write("date,value\n2020-01-01,100000\n2020-01-02,101000")
+#
+#     trade_log_path = os.path.join(DATA_DIR, "mock_trade_log.json")
+#     with open(trade_log_path, 'w') as f:
+#         json.dump([{"date": "2020-01-01", "type": "BUY"}], f)
+#
+#     mock_artifacts = {
+#         "equity_curve_csv": equity_curve_path,
+#         "trade_log_json": trade_log_path
+#     }
+#
+#     # Log the experiment results
+#     log_experiment_results(mock_params, mock_metrics, mock_artifacts)
+#
+#     # After running the above, you can find the run in ./mlruns
+#     # You can then use `mlflow ui` in your terminal to view the UI.
+
+logger.info("MLflow integration functions for experiment tracking defined.")
