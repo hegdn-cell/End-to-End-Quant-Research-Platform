@@ -1,0 +1,208 @@
+# --- SECTION 11: Visualization and Reporting ---
+
+# This section provides functions to generate professional-quality visualizations
+# and reports for backtest results, risk metrics, and performance attribution.
+
+# Plotly was imported in the initial setup cell (PJChChMLGP-A).
+# matplotlib is also a common choice and will be used for some plots.
+
+import plotly.graph_objects as go
+import matplotlib.pyplot as plt
+import matplotlib.ticker as mticker
+
+def plot_equity_curve(equity_curve: pd.DataFrame, strategy_name: str = "Strategy") -> go.Figure:
+    """
+    Plots the equity curve of a backtest using Plotly.
+
+    Args:
+        equity_curve (pd.DataFrame): DataFrame with a 'portfolio_value' column and datetime index.
+        strategy_name (str): Name of the strategy to display in the plot title.
+
+    Returns:
+        go.Figure: Plotly Figure object.
+    """
+    if equity_curve.empty or 'portfolio_value' not in equity_curve.columns:
+        logger.warning("Empty equity curve or missing 'portfolio_value' column for plotting.")
+        return go.Figure()
+
+    logger.info(f"Generating equity curve plot for {strategy_name}.")
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=equity_curve.index, y=equity_curve['portfolio_value'],
+                             mode='lines', name=strategy_name,
+                             line=dict(color='royalblue', width=2)))
+
+    fig.update_layout(
+        title={
+            'text': f'{strategy_name} - Equity Curve',
+            'y':0.9,
+            'x':0.5,
+            'xanchor': 'center',
+            'yanchor': 'top'},
+        xaxis_title="Date",
+        yaxis_title="Portfolio Value",
+        hovermode="x unified",
+        template="plotly_white",
+        height=500,
+        width=900
+    )
+    fig.update_yaxes(tickprefix="$")
+    logger.info("Equity curve plot generated.")
+    return fig
+
+def plot_drawdown(equity_curve: pd.DataFrame, strategy_name: str = "Strategy") -> go.Figure:
+    """
+    Plots the drawdown curve of a backtest using Plotly.
+
+    Args:
+        equity_curve (pd.DataFrame): DataFrame with a 'portfolio_value' column and datetime index.
+        strategy_name (str): Name of the strategy to display in the plot title.
+
+    Returns:
+        go.Figure: Plotly Figure object.
+    """
+    if equity_curve.empty or 'portfolio_value' not in equity_curve.columns:
+        logger.warning("Empty equity curve or missing 'portfolio_value' column for plotting drawdown.")
+        return go.Figure()
+
+    logger.info(f"Generating drawdown plot for {strategy_name}.")
+
+    # Calculate drawdowns
+    roll_max = equity_curve['portfolio_value'].expanding().max()
+    daily_drawdown = (equity_curve['portfolio_value'] / roll_max - 1)
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=daily_drawdown.index, y=daily_drawdown,
+                             mode='lines', name='Drawdown',
+                             fill='tozeroy', fillcolor='rgba(255,0,0,0.3)',
+                             line=dict(color='red', width=1)))
+
+    fig.update_layout(
+        title={
+            'text': f'{strategy_name} - Drawdown',
+            'y':0.9,
+            'x':0.5,
+            'xanchor': 'center',
+            'yanchor': 'top'},
+        xaxis_title="Date",
+        yaxis_title="Drawdown (%)",
+        hovermode="x unified",
+        template="plotly_white",
+        height=500,
+        width=900
+    )
+    fig.update_yaxes(tickformat=".2%")
+    logger.info("Drawdown plot generated.")
+    return fig
+
+def generate_performance_report(metrics: dict, strategy_name: str = "Strategy") -> str:
+    """
+    Generates a text-based performance report.
+
+    Args:
+        metrics (dict): Dictionary of performance metrics.
+        strategy_name (str): Name of the strategy.
+
+    Returns:
+        str: Formatted performance report string.
+    """
+    logger.info(f"Generating performance report for {strategy_name}.")
+    report = f"--- Performance Report for {strategy_name} ---\n"
+    for key, value in metrics.items():
+        if isinstance(value, (int, float)):
+            if '_ratio' in key or '_return' in key or '_drawdown' in key or 'VaR' in key or 'CVaR' in key:
+                report += f"{key.replace('_', ' ').title()}: {value:.2%}\n"
+            else:
+                report += f"{key.replace('_', ' ').title()}: {value:,.2f}\n"
+        else:
+            report += f"{key.replace('_', ' ').title()}: {value}\n"
+    report += "--------------------------------------\n"
+    logger.info("Performance report generated.")
+    return report
+
+def plot_multiple_equity_curves(equity_curves_dict: dict, title: str = "Multiple Strategy Equity Curves") -> go.Figure:
+    """
+    Plots multiple equity curves on a single chart using Plotly.
+
+    Args:
+        equity_curves_dict (dict): A dictionary where keys are strategy names and values are
+                                   DataFrames with a 'portfolio_value' column and datetime index.
+        title (str): Title for the combined plot.
+
+    Returns:
+        go.Figure: Plotly Figure object.
+    """
+    logger.info(f"Generating combined equity curve plot: {title}.")
+    fig = go.Figure()
+
+    for strategy_name, equity_curve_df in equity_curves_dict.items():
+        if not equity_curve_df.empty and 'portfolio_value' in equity_curve_df.columns:
+            fig.add_trace(go.Scatter(x=equity_curve_df.index, y=equity_curve_df['portfolio_value'],
+                                     mode='lines', name=strategy_name))
+        else:
+            logger.warning(f"Skipping empty or invalid equity curve for strategy: {strategy_name}")
+
+    fig.update_layout(
+        title={
+            'text': title,
+            'y':0.9,
+            'x':0.5,
+            'xanchor': 'center',
+            'yanchor': 'top'},
+        xaxis_title="Date",
+        yaxis_title="Portfolio Value",
+        hovermode="x unified",
+        template="plotly_white",
+        height=600,
+        width=1000
+    )
+    fig.update_yaxes(tickprefix="$")
+    logger.info("Combined equity curve plot generated.")
+    return fig
+
+
+# Example Usage: (This will be moved to a dedicated execution cell later)
+# if __name__ == '__main__':
+#     # Assume 'backtest_results' from Section 6 is available
+#     # And 'metrics' from Section 9 or derived from backtest_results
+#     
+#     # For demonstration, we'll create dummy data if backtest_results isn't available
+#     if 'GOOG_signals_ma' in processed_data:
+#         backtester = Backtester(initial_capital=1_000_000, commission=0.0005, slippage_bps=0.5)
+#         backtest_results = backtester.run_backtest(processed_data['GOOG_signals_ma'], strategy_name="MA Crossover GOOG")
+#         equity_curve = backtest_results['equity_curve']
+#
+#         # Generate metrics (simplified for example)
+#         metrics = {
+#             "initial_capital": 1_000_000,
+#             "final_portfolio_value": equity_curve['portfolio_value'].iloc[-1],
+#             "total_return": (equity_curve['portfolio_value'].iloc[-1] / 1_000_000) - 1,
+#             "sharpe_ratio": 1.5, # Placeholder
+#             "max_drawdown": 0.12, # Placeholder
+#             "num_trades": len(backtest_results['trades'])
+#         }
+#
+#         # Plot Equity Curve
+#         fig_equity = plot_equity_curve(equity_curve, strategy_name="MA Crossover GOOG")
+#         fig_equity.show()
+#
+#         # Plot Drawdown
+#         fig_drawdown = plot_drawdown(equity_curve, strategy_name="MA Crossover GOOG")
+#         fig_drawdown.show()
+#
+#         # Generate Performance Report
+#         report = generate_performance_report(metrics, strategy_name="MA Crossover GOOG")
+#         print("\n" + report)
+#
+#         # Example of plotting multiple equity curves
+#         # Dummy another strategy's equity curve
+#         dummy_equity_curve_2 = equity_curve.copy()
+#         dummy_equity_curve_2['portfolio_value'] = equity_curve['portfolio_value'] * 0.9 + 100_000 # Make it slightly different
+#         multiple_curves = {
+#             "MA Crossover GOOG": equity_curve,
+#             "RSI Strategy GOOG (Dummy)": dummy_equity_curve_2
+#         }
+#         fig_multi_equity = plot_multiple_equity_curves(multiple_curves)
+#         fig_multi_equity.show()
+
+logger.info("Visualization and reporting functions defined.")
