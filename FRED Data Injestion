@@ -1,0 +1,55 @@
+# --- FRED Data Ingestion ---
+
+!pip install fredapi
+from fredapi import Fred
+
+# Assuming FRED API key is stored in Colab secrets as 'FRED_API_KEY'
+try:
+    from google.colab import userdata
+    FRED_API_KEY = userdata.get('FRED_API_KEY', "YOUR_FRED_API_KEY")
+except ImportError:
+    FRED_API_KEY = "YOUR_FRED_API_KEY"
+
+fred = Fred(api_key=FRED_API_KEY)
+
+def fetch_fred_data(series_id: str, start_date: str, end_date: str) -> pd.DataFrame:
+    """
+    Fetches economic data from FRED.
+
+    Args:
+        series_id (str): FRED series ID (e.g., 'GDP', 'UNRATE').
+        start_date (str): Start date in 'YYYY-MM-DD' format.
+        end_date (str): End date in 'YYYY-MM-DD' format.
+
+    Returns:
+        pd.DataFrame: DataFrame containing the economic data.
+                      Returns an empty DataFrame if data fetching fails.
+    """
+    logger.info(f"Fetching {series_id} data from FRED for {start_date} to {end_date}")
+    try:
+        data = fred.get_series(series_id, start_date, end_date)
+        if data is None or data.empty:
+            logger.warning(f"No data found for FRED series {series_id} within the specified date range.")
+            return pd.DataFrame()
+        else:
+            df = pd.DataFrame({series_id: data})
+            df.index.name = 'date'
+            df.columns = [series_id.lower()] # Standardize column names
+            logger.info(f"Successfully fetched {len(df)} rows for FRED series {series_id}.")
+            return df
+    except Exception as e:
+        logger.error(f"Error fetching data for FRED series {series_id}: {e}")
+        return pd.DataFrame()
+
+# Example Usage: (This will be moved to a dedicated execution cell later)
+# if __name__ == '__main__':
+#     # Fetch unemployment rate (UNRATE) for the last 10 years
+#     end = datetime.now()
+#     start = end - timedelta(days=365 * 10)
+#     unrate_df = fetch_fred_data('UNRATE', start.strftime('%Y-%m-%d'), end.strftime('%Y-%m-%d'))
+#     if not unrate_df.empty:
+#         print(unrate_df.head())
+#         unrate_df.to_csv(os.path.join(DATA_DIR, 'UNRATE_historical.csv'))
+#         logger.info(f"Saved UNRATE data to {os.path.join(DATA_DIR, 'UNRATE_historical.csv')}")
+
+logger.info("FRED data ingestion function defined. Proceeding with Polygon and Alpha Vantage.")
